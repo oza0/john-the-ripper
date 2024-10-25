@@ -1,0 +1,184 @@
+###############################################################################
+#        _       _             _   _            _____  _
+#       | |     | |           | | | |          |  __ \(_)
+#       | | ___ | |__  _ __   | |_| |__   ___  | |__) |_ _ __  _ __   ___ _ __
+#   _   | |/ _ \| '_ \| '_ \  | __| '_ \ / _ \ |  _  /| | '_ \| '_ \ / _ \ '__|
+#  | |__| | (_) | | | | | | | | |_| | | |  __/ | | \ \| | |_) | |_) |  __/ |
+#   \____/ \___/|_| |_|_| |_|  \__|_| |_|\___| |_|  \_\_| .__/| .__/ \___|_|
+#                                                       | |   | |
+#                                                       |_|   |_|
+#
+# Copyright (c) 2019-2023 Claudio André <claudioandre.br at gmail.com>
+#
+# This program comes with ABSOLUTELY NO WARRANTY; express or implied.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, as expressed in version 2, seen at
+# http://www.gnu.org/licenses/gpl-2.0.html
+###############################################################################
+# Circle CI configuration
+# More info at https://github.com/openwall/john-packages
+
+version: 2
+jobs:
+  common_linux: &common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:fedora.latest
+    steps:
+      - checkout
+      - run:
+          name: Building JtR
+          command: .ci/tests-ci.sh $TARGET_ARCH BUILD
+      - run:
+          name: Testing JtR
+          command: .ci/tests-ci.sh $TARGET_ARCH TEST
+
+  linux-Ubuntu-Dev:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:ubuntu.devel
+        environment:
+          TARGET_ARCH: "NIX"
+          EXTRA: "full;extra;crack;"
+          OMP_NUM_THREADS: 2
+
+  linux-Fedora:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:fedora.latest
+        environment:
+          TARGET_ARCH: "NIX"
+          EXTRA: "full;extra;crack;"
+          OMP_NUM_THREADS: 2
+
+  make-check:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:fedora.latest
+        environment:
+          TARGET_ARCH: "NIX"
+          EXTRA: "CHECK;"
+          ASAN: "--enable-asan"
+          OMP_NUM_THREADS: 3
+
+  no-omp:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:fedora.latest
+        environment:
+          TARGET_ARCH: "NIX"
+          EXTRA: "full;extra;crack;"
+          BUILD_OPTS: "--disable-openmp" # disabled temporarily -enable-werror
+
+  no-simd:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:fedora.latest
+        environment:
+          TARGET_ARCH: "NIX"
+          EXTRA: "full;extra;crack;"
+          BUILD_OPTS: "-enable-werror --disable-simd"
+          OMP_NUM_THREADS: 2
+
+  no-simd-omp:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:fedora.latest
+        environment:
+          EXTRA: "full;extra;crack;"
+          TARGET_ARCH: "NIX"
+          BUILD_OPTS: "-enable-werror --disable-simd --disable-openmp"
+
+  omp-fast-formats:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john-ci:fedora.latest
+        environment:
+          TARGET_ARCH: "NIX"
+          EXTRA: "full;extra;crack;"
+          BUILD_OPTS: "--enable-openmp-for-fast-formats --enable-simd=avx2" # disabled temporarily -enable-werror
+          OMP_NUM_THREADS: 2
+
+  simd-latest:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john
+        user: root
+        environment:
+          TARGET_ARCH: "DOCKER"
+          EXTRA: "SIMD"
+          OMP_NUM_THREADS: 4
+    resource_class: large
+
+  simd-bleeding:
+    <<: *common_linux
+    docker:
+      - image: ghcr.io/openwall/john:bleeding
+        user: root
+        environment:
+          TARGET_ARCH: "DOCKER"
+          EXTRA: "SIMD"
+          OMP_NUM_THREADS: 4
+    resource_class: large
+
+  flatpak:
+    machine:
+      image: ubuntu-2204:current
+    environment:
+      OMP_NUM_THREADS: 2
+      TEST: ";full;extra;"
+      arch: "x86_64"
+      JTR_BIN: "john"
+      FLATPAK: "true"
+
+    steps:
+      - run:
+          name: Initialising
+          command: |
+            sudo apt-get update && sudo apt-get install -y flatpak
+            wget https://github.com/openwall/john-packages/releases/download/bleeding/flatpak_1_JtR.zip
+            unzip flatpak_1_JtR.zip
+            sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+            sudo flatpak install -y flathub org.freedesktop.Platform//23.08
+            flatpak install --user -y --bundle john.flatpak
+      - run:
+          name: System Information
+          command: |
+            flatpak run com.openwall.John
+            flatpak run com.openwall.John --list=build-info
+      - run:
+          name: Testing
+          command: |
+            wget https://raw.githubusercontent.com/openwall/john-packages/release/scripts/run_tests.sh
+            source run_tests.sh
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - linux-Ubuntu-Dev
+      - make-check
+      - no-simd
+
+      - no-omp
+      - no-simd-omp:
+          requires:
+            - no-omp
+
+      - linux-Fedora
+      - omp-fast-formats:
+          requires:
+            - linux-Fedora
+
+      - extras:
+          type: approval
+      - simd-latest:
+          requires:
+            - extras
+      - simd-bleeding:
+          requires:
+            - extras
+      - flatpak:
+          requires:
+            - extras
