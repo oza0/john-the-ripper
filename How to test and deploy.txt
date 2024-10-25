@@ -1,0 +1,32 @@
+Deployment Process:
+- run regular CI;
+  - check if CI is Ok;
+
+- before deployment:
+  - enable the Windows delivery;
+  - update to point to the latest upstream commit;
+  - check if the Windows build log uses the code 128.
+
+In john repository:
+wget https://raw.githubusercontent.com/claudioandre-br/JtR-CI/main/tests/get_tests.sh; chmod +x get_tests.sh; ./get_tests.sh
+
+In john-packages repository:
+wget https://raw.githubusercontent.com/claudioandre-br/JtR-CI/main/tests/make-pin_commit.sh; chmod +x make-pin_commit.sh; ./make-pin_commit.sh; rm -f make-pin_commit.sh
+
+To compile the Windows binaries that can be used in a release:
+./get_tests.sh --release
+
+To run tests in Launchpad:
+./get_tests.sh --test-all-archs
+
+
+# Some testing
+john --list=build-info
+john-the-ripper -list=format-tests | cut -f3 > ~/alltests.in
+john-the-ripper -form=SHA512crypt ~/alltests.in
+
+john-the-ripper -list=format-tests --format=sha512crypt | cut -f4 | head > ~/solucao
+john-the-ripper -form=SHA512crypt ~/alltests.in -w:/home/claudio/solucao
+
+john --incremental=digits --mask='?w?d?d?d' --min-len=8 --max-len=8 --stdout | head
+john --incremental=digits --mask='?w?d?d?d' --min-len=8 --stdout | head
